@@ -27,6 +27,7 @@ from sqlalchemy.orm import sessionmaker, joinedload
 
 from .models import Base, WorkflowRun, StepRecord, LLMUsage, GeneratedContent
 from . import models_phase5  # register eval/benchmark/approval tables
+from . import models_phase6  # register content_performance table
 
 try:
     from dotenv import load_dotenv

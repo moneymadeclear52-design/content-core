@@ -246,3 +246,37 @@ def approvals_decide(approval_id: int, req: DecideRequest) -> dict:
     except KeyError:
         raise HTTPException(status_code=404, detail="Unknown approval id")
     return {"id": approval_id, "status": status}
+
+
+# ── Phase 6 — closed-loop feedback ─────────────────────────────────────────────
+
+class PerformanceRequest(BaseModel):
+    channel: str
+    video_ref: str
+    category: Optional[str] = None
+    format: Optional[str] = None
+    originality_score: Optional[float] = None
+    views: int = 0
+    watch_time_min: float = 0.0
+    ctr: float = 0.0
+    likes: int = 0
+    retention: float = 0.0
+
+
+@app.post("/feedback/performance", dependencies=[Depends(require_api_key)])
+def post_performance(req: PerformanceRequest) -> dict:
+    """Record one published item's measured performance (feeds the learning loop)."""
+    from content_core.feedback import record_performance
+    row_id = record_performance(**req.model_dump())
+    return {"id": row_id}
+
+
+@app.get("/feedback/{channel}", dependencies=[Depends(require_api_key)])
+def get_feedback(channel: str) -> list[dict]:
+    """The learned category boosts a pipeline applies when scoring topics."""
+    from content_core.feedback import compute_boosts
+    return [
+        {"category": b.category, "boost": b.boost,
+         "sample_size": b.sample_size, "avg_performance": b.avg_performance}
+        for b in compute_boosts(channel)
+    ]
