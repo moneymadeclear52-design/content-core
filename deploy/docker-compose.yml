@@ -1,0 +1,52 @@
+# Content Platform — full-stack compose.
+# Default profile: API (SQLite) + dashboard. Postgres is an opt-in profile.
+#
+#   docker compose up                      # API + dashboard, SQLite
+#   docker compose --profile postgres up   # + Postgres, API uses it
+#
+# Secrets come from an .env file next to this compose file (never committed).
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/api.Dockerfile
+    env_file: .env
+    environment:
+      # When the postgres profile is active, point the API at it.
+      # Leave unset to use the bundled SQLite file (default profile).
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/content_core.db}
+    volumes:
+      - platform-data:/data
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  dashboard:
+    build:
+      context: ../../platform-dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-platform}
+      POSTGRES_DB: platform
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  platform-data:
+  pgdata:
