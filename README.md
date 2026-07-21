@@ -52,6 +52,9 @@ across them.
 | `content_core.telemetry` | Per-call LLM token/cost/latency recording, structured JSON logging, optional Langfuse export |
 | `content_core.db` | SQLAlchemy persistence — workflow runs, step records, LLM usage, generated content |
 | `content_core.api` | FastAPI service layer — background jobs, API-key auth, OpenAPI |
+| `content_core.eval` | Evaluation: rule + LLM-as-judge scorers, prompt registry, benchmarking, A/B/n experiments |
+| `content_core.approvals` | Human-in-the-loop approval gate (auto-approve above threshold, else queue) |
+| `content_core.registry` | Minimal plugin registry for scorers/providers/publishers |
 | `mcp_server.py` | MCP server exposing the platform as tools for Claude Desktop/Code, Cursor |
 
 ## Install
@@ -139,11 +142,49 @@ Structured JSON logging via `telemetry.setup_structured_logging()`. Optional
 Langfuse export behind `LANGFUSE_ENABLED=true`. Telemetry failures never break
 generation.
 
+## Evaluation, benchmarking & experiments
+
+Quality measurement is first-class. Scorers normalize to 0–1 (comparable across
+types); the LLM-as-judge uses a cheap model and degrades gracefully.
+
+```python
+from content_core.eval import evaluate, benchmark, experiment, Variant
+
+# regression-test a prompt against golden cases (persists an eval run)
+report = evaluate(template, cases, criteria=[
+    {"scorer": "length_bounds", "min_words": 30, "max_words": 90},
+    {"scorer": "excludes_all", "forbidden": ["as an AI"]},
+    {"scorer": "llm_judge", "rubric": "Rate hook strength and factual tone."},
+])
+
+# compare models on the same prompt (cost recorded automatically)
+rows = benchmark(prompt, [
+    {"provider": "claude", "model": "claude-sonnet-4-6"},
+    {"provider": "openai", "model": "gpt-4o"},
+], criteria)
+
+# pick the best of N prompt variants
+best = experiment([Variant("a", tA), Variant("b", tB)], inputs, criteria)
+```
+
+Human-in-the-loop gate for publishing:
+
+```python
+from content_core.approvals import auto_or_queue
+if auto_or_queue(workflow="rapidreelz", item_ref=job_id,
+                 summary=title, score=originality, threshold=0.75) == "pending":
+    return   # awaits review at GET /approvals
+```
+
+API surfaces: `GET /eval/runs`, `GET /benchmarks`, `GET /approvals`,
+`POST /approvals/{id}/decide`. The dashboard's **Quality** tab visualizes all
+three.
+
 ## Testing
 
 ```bash
 pip install -e ".[dev]"
-pytest -q          # 35 tests, no API keys, no network, < 5s
+pytest -q          # 46 tests, no API keys, no network, < 6s
 ```
 
 Tests mock vendor SDKs and use fake embedders / scripted LLMs, so the full
@@ -164,6 +205,19 @@ across Python 3.10–3.12 and includes a hardcoded-secret gate.
 | 0005 | Keep the custom LLM abstraction; not LiteLLM |
 | 0006 | Keep the Director; not LangGraph |
 | 0007 | No Redis caching layer |
+| 0008 | Minimal plugin registry, not a full framework |
+| 0009 | LLM-as-judge with a cheap model + rule-based first |
+
+## Deployment
+
+The API + dashboard (+ optional Postgres) run via Docker Compose:
+
+```bash
+cd deploy && cp ../.env.example .env && docker compose up
+```
+
+See `deploy/DEPLOY.md` for managed platforms (Railway/Render/Fly.io/ECS).
+Kubernetes is intentionally omitted (ADR-0003).
 
 ## Consumers
 
