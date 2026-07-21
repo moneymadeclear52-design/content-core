@@ -120,7 +120,14 @@ class LLMProvider:
 
         for attempt in range(1, self.max_retries + 1):
             try:
+                _t0 = time.time()
                 text, raw = self._dispatch(prompt, model, max_tokens, temperature, system)
+                try:
+                    from content_core.telemetry import record_call
+                    record_call(provider=self.provider, model=model, raw=raw,
+                                latency_s=time.time() - _t0)
+                except Exception:  # noqa: BLE001 — observability never breaks generation
+                    pass
                 return LLMResponse(text=text, model=model, provider=self.provider, raw=raw)
             except Exception as e:  # noqa: BLE001 — we re-raise as LLMError below
                 last_err = e
