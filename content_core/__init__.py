@@ -16,7 +16,7 @@ from .originality_injector import inject_originality, process_content_queue
 from .retry import retry, call_with_retry
 from .workflow import Workflow, Step, RunReport, StepResult
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "LLMProvider", "LLMResponse", "LLMError",

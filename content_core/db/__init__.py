@@ -26,6 +26,7 @@ from sqlalchemy import create_engine, select, func
 from sqlalchemy.orm import sessionmaker, joinedload
 
 from .models import Base, WorkflowRun, StepRecord, LLMUsage, GeneratedContent
+from . import models_phase5  # register eval/benchmark/approval tables
 
 try:
     from dotenv import load_dotenv
@@ -33,20 +34,31 @@ try:
 except ImportError:
     pass
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///content_core.db")
+def _current_url() -> str:
+    return os.getenv("DATABASE_URL", "sqlite:///content_core.db")
 
-_engine = create_engine(DATABASE_URL, future=True)
-_Session = sessionmaker(bind=_engine, future=True, expire_on_commit=False)
+_engine = None
+_Session = None
+
+def _ensure_engine():
+    global _engine, _Session
+    url = _current_url()
+    if _engine is None or str(_engine.url) != url:
+        _engine = create_engine(url, future=True)
+        _Session = sessionmaker(bind=_engine, future=True, expire_on_commit=False)
+    return _engine, _Session
 
 
 def init_db() -> None:
     """Create all tables if they don't exist. Safe to call repeatedly."""
-    Base.metadata.create_all(_engine)
+    engine, _ = _ensure_engine()
+    Base.metadata.create_all(engine)
 
 
 @contextmanager
 def get_session():
-    s = _Session()
+    _, Session = _ensure_engine()
+    s = Session()
     try:
         yield s
         s.commit()

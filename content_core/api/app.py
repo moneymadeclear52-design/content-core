@@ -190,3 +190,59 @@ def metrics_usage(days: int = 30) -> list[dict]:
 @app.on_event("startup")
 def _startup():
     init_db()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 5 — evaluation, benchmarking, approvals
+# ══════════════════════════════════════════════════════════════════════════════
+
+class DecideRequest(BaseModel):
+    approved: bool
+    note: Optional[str] = None
+
+
+@app.get("/eval/runs", dependencies=[Depends(require_api_key)])
+def eval_runs(limit: int = 20) -> list[dict]:
+    """Recent evaluation runs with mean score and pass rate."""
+    from content_core.db import get_session
+    from content_core.db.models_phase5 import EvalRun
+    with get_session() as s:
+        rows = (s.query(EvalRun).order_by(EvalRun.at.desc()).limit(limit).all())
+        return [
+            {"id": r.id, "at": r.at.isoformat(), "prompt": r.prompt_name,
+             "version": r.prompt_version, "model": r.model,
+             "mean_score": r.mean_score, "pass_rate": r.pass_rate}
+            for r in rows
+        ]
+
+
+@app.get("/benchmarks", dependencies=[Depends(require_api_key)])
+def benchmarks(limit: int = 40) -> list[dict]:
+    """Recent model benchmark rows (score + latency per provider/model)."""
+    from content_core.db import get_session
+    from content_core.db.models_phase5 import BenchmarkRun
+    with get_session() as s:
+        rows = (s.query(BenchmarkRun).order_by(BenchmarkRun.at.desc()).limit(limit).all())
+        return [
+            {"id": r.id, "at": r.at.isoformat(), "provider": r.provider,
+             "model": r.model, "score": r.score, "latency_s": r.latency_s}
+            for r in rows
+        ]
+
+
+@app.get("/approvals", dependencies=[Depends(require_api_key)])
+def approvals_pending() -> list[dict]:
+    """Content items awaiting human review."""
+    from content_core.approvals import pending
+    return pending()
+
+
+@app.post("/approvals/{approval_id}/decide", dependencies=[Depends(require_api_key)])
+def approvals_decide(approval_id: int, req: DecideRequest) -> dict:
+    """Approve or reject a pending item."""
+    from content_core.approvals import decide
+    try:
+        status = decide(approval_id, approved=req.approved, note=req.note)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown approval id")
+    return {"id": approval_id, "status": status}
